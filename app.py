@@ -3,6 +3,7 @@ import trimesh
 import numpy as np
 import os
 import tempfile
+import rhino3dm  # Added for 3DM export logic
 from PIL import Image
 
 # --- PAGE CONFIG ---
@@ -12,6 +13,41 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# --- CAD EXPORT ENGINE ---
+def export_to_3dm(mesh_data, output_path, metal_type):
+    """Converts Mesh data to a Layered 3DM file for MatrixGold/CAD"""
+    model = rhino3dm.File3dm()
+    
+    # Standard Jewelry Layers
+    layers = [
+        {"name": "JB_Metal", "color": (212, 175, 55, 255)}, # Gold color
+        {"name": "JB_Stones", "color": (0, 255, 255, 255)}, # Cyan
+        {"name": "JB_Prongs", "color": (0, 255, 0, 255)}    # Green
+    ]
+    
+    for l in layers:
+        layer = rhino3dm.Layer()
+        layer.Name = l["name"]
+        layer.Color = l["color"]
+        model.Layers.Add(layer)
+        
+    # Process Mesh for Rhino
+    # Note: In production, this would trigger QuadRemesh on Rhino Compute
+    r_mesh = rhino3dm.Mesh()
+    for v in mesh_data.vertices:
+        r_mesh.Vertices.Add(v[0], v[1], v[2])
+    for f in mesh_data.faces:
+        r_mesh.Faces.AddFace(f[0], f[1], f[2])
+    
+    attr = rhino3dm.ObjectAttributes()
+    attr.LayerIndex = 0 # Metal Layer
+    attr.UserStringList.Set("Material", metal_type)
+    attr.UserStringList.Set("Engine", "JewelBench_Elite_v1")
+    
+    model.Objects.AddMesh(r_mesh, attr)
+    model.Write(output_path, 7) # Rhino 7 for Matrix compatibility
+    return output_path
 
 # --- CUSTOM CSS FOR PREMIUM FEEL ---
 st.markdown("""
@@ -162,7 +198,18 @@ with col2:
         
         st.markdown("---")
         st.subheader("🚀 Production")
-        st.button("📦 Export Tech Sheet")
+        if st.button("📦 Export MatrixGold (.3dm)"):
+            with st.spinner("Synthesizing CAD Layers..."):
+                cad_path = tempfile.mktemp(suffix=".3dm")
+                export_to_3dm(mesh, cad_path, metal_type)
+                with open(cad_path, "rb") as f:
+                    st.download_button(
+                        label="Download 3DM File",
+                        data=f,
+                        file_name=f"JewelBench_{metal_type.replace(' ', '_')}.3dm",
+                        mime="application/octet-stream"
+                    )
+        st.button("📜 Generate Tech Sheet")
         st.button("🛡️ Validate for Casting")
     else:
         st.write("Results will appear here after upload.")
